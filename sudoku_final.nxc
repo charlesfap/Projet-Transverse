@@ -1,0 +1,952 @@
+#define VITESSE_X 70  // Puissance du moteur pour le scan (avant pour le bras)
+#define VITESSE_Y 70  // Puissance du moteur pour le scan (arrière pour les roues)
+#define VITESSE_ECRITURE_X 20 // Même chose pour l'écriture
+#define VITESSE_ECRITURE_Y 30
+
+#define NORD       1 // Variables pour la reconnaissance des chiffres
+#define NORD_EST   2
+#define EST        3
+#define SUD_EST    4
+#define SUD        5
+#define SUD_OUEST  6
+#define OUEST      7
+#define NORD_OUEST 8
+
+#define SCAN_Y  25  // Nombre de lignes pour scanner un chiffre
+#define SCAN_X  32  // Largeur pour scanner un chiffre
+#define STEP_X  1
+#define STEP_Y  20
+#define LARGEUR_PUZZLE  1300
+#define CALIBRER_LARGEUR 400
+#define TAILLE_CELLULE 560
+#define LIMITE_SONDE 3
+#define AVANT 20
+#define MAX_LEVEL  65
+
+#define UN      1 // On définit des variables pour l'écriture
+#define DEUX    2
+#define TROIS   4
+#define QUATRE  8
+#define CINQ    16
+#define SIX     32
+#define SEPT    64
+#define HUIT    128
+#define NEUF    256
+
+#define Pixel(int position)  RectOut(18 + (position % SCAN_X) * 2, (position / SCAN_X) * 2, 1,1);
+
+int LR_decalage,RL_decalage;
+byte scanbuff[LARGEUR_PUZZLE];
+
+// Reglage pour les capteur du robot et definition des variables que l'on va utiliser dans le programme
+int cellule_capteur_X[] = {-100,-100,-90,-49,0,49,90,100,149};
+int cellule_capteur_Y[] = {-149,-310,-149,-49,0,-49,-149,-310,-149};
+int cellule_ecriture_X[] = {-70,-100,-190,-20,0,20,190,100,70};
+int stylocelluleY[] = {-70,-30,-30,-35,0,-35,-30,-30,-70};
+bool sonde[9*9];
+byte b[SCAN_X * SCAN_Y];
+byte image[SCAN_X * SCAN_Y];
+int ligne[MAX_LEVEL];
+int colonne[MAX_LEVEL];
+int box[MAX_LEVEL];
+int cellule[MAX_LEVEL];
+int chiffre[MAX_LEVEL];
+int sudoku[9*9];
+int supressionligne[9];
+int supressioncolonne[9];
+int supression3x3[9];
+int supressioncellule[9*9];
+int compteur[512];
+
+//calibrage du robot en fonction de la grille du sudoku a scanner
+
+// get_decalage permet de savoir si le robot est mal positionner par raport a la grille en fonction de l'intensité de la lumiere
+int get_decalage(int direction)
+{
+    // initialisation des variables
+    int minimum_valeur = 999;
+    int minimumPosition_debut = 0;
+    int minimumPosition_fin;
+    for(int i = 0; i < CALIBRER_LARGEUR; i++)
+    {
+        byte lumiere;
+        RotateMotorEx(OUT_B, VITESSE_X, direction, 0, false, false);
+        lumiere = Sensor(IN_2); // capteur de lumiere dans l'entrée 2 du boitier nxt
+        scanbuff[i] = lumiere; // on insere dans le tableau scanbuff[i] l'intensité de la lumiere
+    }
+    Off(OUT_B); // on arrete le moteur
+    for(int i = 0; i < CALIBRER_LARGEUR; i++) //on parcour le tableau
+        if(scanbuff[i] < minimum_valeur) // si la lumuere est inferieur a 999 on l'insere a minimum valeur et la valeur minimum de position de debut et de fin prend la valeur du numero de la case du tableau
+        {
+            minimum_valeur = scanbuff[i];
+            minimumPosition_debut = i;
+            minimumPosition_fin = i;
+        }
+        else if(scanbuff[i] == minimum_valeur) minimumPosition_fin = i; // si la lumuere est egale a la valeur minimum, la valeur minimum de position de fin prend la valeur du numero de la case du tableau
+
+    return  (minimumPosition_debut + minimumPosition_fin) / 2 - CALIBRER_LARGEUR / 2;
+}
+
+// On appelle la fonction precedente et on calibre le robot grace a ses moteur C et B
+void calibrer() // moteur A contrôle la gauche et motor B la droite du robot
+{
+    RotateMotor(OUT_B, VITESSE_X, -1 * CALIBRER_LARGEUR / 2);
+    LR_decalage = get_decalage(1);
+    RL_decalage = get_decalage(-1);
+    RotateMotor(OUT_B, VITESSE_X, CALIBRER_LARGEUR / 2);
+}
+
+void initialisation()
+{
+    byte lumiere_max = 0;
+    byte lumiere;
+    RotateMotor(OUT_A, 100, 4900); // mise en marche du moteur A
+    SetSensorLight(IN_2); // capteur limiere
+    calibrer(); // on appelle notre fonction de calibrage
+    RotateMotorEx(OUT_A, 29, -299, 0, false, false);
+    do
+    {
+        RotateMotorEx(OUT_A, 29, -10, 0, false, false);
+        lumiere = Sensor(IN_2);
+        if(lumiere > lumiere_max) // reglage de l'intensité max de la lumiere
+            lumiere_max = lumiere;
+    }
+    while(lumiere > (lumiere_max - 7))
+    }
+
+void cellule_sonde(int cellule, int centre)
+{
+    // Initialisation des variable
+    int gauche = centre - 49;
+    int x = cellule % 9;
+    int y = 8 - cellule / 9;
+    RectOut(18 + x * 7, y * 7, 7, 7);
+    if(gauche < 0) gauche = 0;
+    int droite = gauche + 100;
+    if (droite > LARGEUR_PUZZLE)
+    {
+        droite = LARGEUR_PUZZLE; // Mise en mémoire des bord de la grille
+        gauche = droite - 100;
+    }
+    int valeur_max = scanbuffer[gauche];
+    int valeur_min = valeur_max;
+    for(int i = gauche + 1; i < droite; i++) //Parcours d'un tableau, verification element scan
+    {
+        if(scanbuffer[i] > valeur_max)
+        {
+            valeur_max = scanbuffer[i];
+            valeur_min = valeur_max;
+        }
+        else if(scanbuffer[i] < valeur_min)
+            valeur_min = scanbuffer[i];
+        if(valeur_max - valeur_min >= LIMITE_SONDE)
+            break; // Arret de condition, par defaut
+    }
+
+    valeur_max = valeur_min;
+    for(int i; i < droite; i++)
+    {
+        if(scanbuffer[i] < valeur_min) // Nouveau test sur valeur scan du sudoku
+        {
+            valeur_min = scanbuffer[i];
+            valeur_max = valeur_min;
+        }
+        else if(scanbuffer[i] > valeur_max)
+            valeur_max = scanbuffer[i];
+
+        if(valeur_max - valeur_min >= LIMITE_SONDE)
+        {
+            sonde[cellule] = true;
+            RectOut(20+x*7,y*7+2,3,3);
+            RectOut(21+x*7,y*7+3,1,1);
+            return;
+        }
+    }
+    sonde[cellule] = false; // Probleme de detection
+}
+
+void recherche_cellules_non_vides()
+{
+    // Initialisation des variables
+    int sequence_sonde_droite[] = {0,-7,-6,-5,-4,-3,8};
+    int sequence_sonde_gauche[] = {-2,-8};
+    int colonne_sonde_droite[] = {0,2,3,4,5,6,8};
+    int colonne_sonde_gauche[] = {7,1};
+
+    RotateMotor(OUT_B, VITESSE_X, -1 * LARGEUR_PUZZLE / 2); // Commencement du parcours de la grille
+    RotateMotor(OUT_A, -49, TAILLE_CELLULE / 7);
+    for(int i = 9; i >= 0; i--) // Deplacement sur grille
+    {
+        RotateMotor(OUT_A, -49 ,3 * TAILLE_CELLULE / 7);
+        for(int x = 0; x < LARGEUR_PUZZLE; x++)
+        {
+            byte lumiere;
+            RotateMotorEx(OUT_B, VITESSE_X, 1, 0, false, false);
+            lumiere = Sensor(IN_2);
+            scanbuffer[x] = lumiere; // Reconnaissance optique
+        }
+        Off(OUT_B);
+        for(int j = 0; j < 7; j++)
+        {
+            int position = i * 9 + sequence_sonde_droite[j];
+            if(position < 81 && position >= 0) // 81 car sudoku : 9 * 9 = 81 case
+            {
+                int x = LARGEUR_PUZZLE / 2 + cellule_capteur_X[colonne_sonde_droite[j]] + LR_decalage;
+                cellule_sonde(position, x);
+            }
+        }
+        RotateMotor(OUT_A, -49, 4 * TAILLE_CELLULE / 7); // Deplacement grille
+        for(int x = LARGEUR_PUZZLE - 1; x >= 0; x--)
+        {
+            byte lumiere;
+            RotateMotorEx(OUT_B, VITESSE_X, -1, 0, false, false);
+            lumiere = Sensor(IN_2); // Recupération valeur capteur -> peu avoir probleme si mauvaise condition lumineuse
+            scanbuffer[x] = lumiere;
+        }
+        Off(OUT_B);
+        for(int j = 0; j < 2; j++)
+        {
+            int position=i * 9 + sequence_sonde_gauche[j];
+            if(position >= 0)
+            {
+                int x = LARGEUR_PUZZLE / 2 + cellule_capteur_X[colonne_sonde_gauche[j]] - RL_decalage;
+                cellule_sonde(position, x);
+            }
+        }
+    }
+    int compteur = 0;
+    for(int i = 0; i < 9 * 9; i++) // Compte nombre element trouvé
+        if(sonde[i])
+            compteur++;
+}
+
+void scan_ligne(int r,int direction)
+{
+    int b_decalage = r*SCAN_X; // Scan ligne par ligne
+    if(direction == 1) // Boolean, si direction est même
+    {
+        for(int x = 0; x < AVANT; x += 1) // Decalement grille
+            RotateMotorEx(OUT_B, VITESSE_X, STEP_X, 0, false, false);
+        for(int x = 0; x < SCAN_X * 3; x++)
+        {
+            byte lumiere;
+            RotateMotorEx(OUT_B, VITESSE_X, STEP_X, 0 ,false, false);
+            lumiere = Sensor(IN_2);
+            scanbuffer[x] = lumiere; // Recuperation valeur de case actuelle
+        }
+    }
+    else
+    {
+        for(int x = 0; x < AVANT; x += 1)
+            RotateMotorEx(OUT_B, VITESSE_X, -1 * STEP_X, 0, false, false); // Changement direction
+        for(int x = SCAN_X * 3 - 1; x >= 0; x--) // Deplcement sur ligne
+        {
+            byte lumiere;
+            RotateMotorEx(OUT_B, VITESSE_X, -1 * STEP_X, 0, false, false);
+            lumiere = Sensor(IN_2);
+            scanbuffer[x] = lumiere; // recuperation valeurs
+        }
+    }
+    int lumiere_max = 0; // 0 = noir
+    int lumiere_min = 255; // Car 255 blanc
+    for(int x = 0; x < SCAN_X; x++)
+    {
+        int lumiere = 0;
+        for(int i = 0; i < 3; i++)
+            lumiere += scanbuffer[x * 3 + i];
+        lumiere /= 3;
+        b[b_decalage + x] = lumiere;
+        if(lumiere > lumiere_max) // Changement maximum
+            lumiere_max = lumiere;
+        if(lumiere < lumiere_min)
+            lumiere_min = lumiere;
+    }
+    int threshold = (lumiere_max + lumiere_min) / 2;
+    for(int x = 0; x < SCAN_X; x++)
+        if(b[b_decalage + x] < threshold)
+            RectOut(18 + x * 2, r * 2, 1, 1);
+    RotateMotorPID(OUT_B, -1 * direction * VITESSE_X, SCAN_X * 3 * STEP_X + AVANT * STEP_X, 50, 40, 90);
+}
+
+
+void capteur_deplacement(int r, int c, int decalageX, int decalageY, bool scanCell)
+{
+    //initialisation des variables
+    int newMotorA;
+    int newMotorB;
+    int oldMotorA = MotorRotationCount(OUT_A); //nombre de rotation du moteur A
+    int oldMotorB = MotorRotationCount(OUT_B); //nombre de rotation du moteur B
+
+    ResetTachoCount(OUT_AB); //Réinitialisation du nombre de tachymètres et la limite du but pour les sorties spécifiées.
+    int y = (r - 4) * TAILLE_CELLULE;
+
+    // on ajoute le decalage X ou Y en fonction du moteur correspondant
+    newMotorB = cellule_capteur_X[c] + decalageX;
+    newMotorA = cellule_capteur_Y[c] + y - decalageY - 2490;
+    int DiffMotorB = newMotorB - oldMotorB; // difference entre les nouveau moteur et les anciens
+    int DiffMotorA = newMotorA - oldMotorA;
+    RotateMotorEx(OUT_B, 49, DiffMotorB, 0, false, true);
+    if(scanCell && DiffMotorA > 0)
+    {
+        RotateMotorExPID(OUT_A, 49, DiffMotorA+490, 0, false, true, 49, 40, 90);
+        RotateMotorExPID(OUT_A, 49, -490, 0, false, true, 49, 40, 90);
+    }
+    else
+        RotateMotorExPID(OUT_A, , DiffMotorA, 0, false, true, 49, 40, 90);
+}
+
+
+void cellule_scan(int r, int c) // Fonction de scan du sudoku
+{
+    int direction;
+    int decalage;
+    if(c < 4) // Cellule de 3*3 case
+        direction =- 1;
+    else
+        direction = 1;
+    for(int i = 0; i < SCAN_X * SCAN_Y; i++)
+        b[i] = 0;
+    if(direction == 1)
+        decalage = LR_decalage; // Vers la droite
+    else
+        decalage = RL_decalage; // Vers la gauche
+    capteur_deplacement(r, c, -1 * direction * (AVANT * STEP_X + (SCAN_X * 3 * STEP_X) / 2 - decalage), -249, true);
+    for(int y = 0; y < SCAN_Y; y++)
+    {
+        RotateMotor(OUT_A, -1 * VITESSE_Y, STEP_Y);
+        scan_ligne(y, direction);
+    }
+}
+
+void  methode_seuil()
+{
+    // Initialisation valeur
+    byte seuil;
+    long valeur_max = 0;
+    int compteur_blanc = 0;
+    int compteur_noir = 0;
+    byte min = b[0];
+    for(int i = 1; i < SCAN_X * SCAN_Y; i++)
+        if(b[i] < min)
+            min = b[i];
+    for(byte t = min + 2; compteur_blanc >= compteur_noir; t++) // Case colorier en noir -> chiffre detecté
+    {
+        long somme_cpt_blanc = 0;
+        long somme_cpt_noir = 0;
+        compteur_blanc = 0;
+        compteur_noir = 0;
+        for(int i = 0; i < SCAN_X * SCAN_Y; i++) // Parcours de toute la grille scanné
+        {
+            byte value = b[i];
+            if(value > t)
+            {
+                compteur_blanc++;
+                somme_cpt_blanc += value;
+            }
+            else
+            {
+                compteur_noir++;
+                somme_cpt_noir += value;
+                Pixel(i);
+                if(compteur_noir > SCAN_X * SCAN_Y / 2)
+                    break;
+            }
+        }
+        if(compteur_noir > 30 && compteur_blanc > compteur_noir)
+        {
+            long moyenne_noir = somme_cpt_noir * 10 / compteur_noir;
+            long moyenne_blanc = somme_cpt_blanc * 10 / compteur_blanc;
+            long diff = moyenne_blanc - moyenne_noir;
+            compteur_blanc /= 10;
+            compteur_noir /= 10;
+            long value = diff * diff * compteur_blanc * compteur_noir;  // Diference entre nb case noir et blanche
+            if(value > valeur_max)
+            {
+                valeur_max = value;
+                seuil = t;
+            }
+        }
+    }
+    for(int i = 0; i < SCAN_X * SCAN_Y; i++)
+    {
+        if(b[i] < seuil)
+        {
+            //Recherche si pic (les trous dans 6 8 9 peuvent ne pas être reconnus)
+            for(int j = i - 1; j > 0; j--)
+                if(b[j] > b[i])
+                    break;
+                else if(b[i] - b[j] >= 2)
+                {
+                    for(int k= i + 1; k < SCAN_X * SCAN_Y; k++)
+                        if(b[k] > b[i])
+                            break;
+                }
+        }
+    }
+
+}
+
+
+void segmentation()
+{
+    int position;
+    int milieu = SCAN_X * SCAN_Y / 2;
+    int pile_tab[SCAN_X * SCAN_Y / 2];
+    int pile_tab_taille = 0;
+    for(int i = 0; i < SCAN_X / 2; i++)
+    {
+        position = milieu + i;
+        if(image[position] == 1)
+            break;
+        position = milieu - i;
+        if(image[position] == 1)
+            break;
+    }
+    pile_tab[0] = position;
+    while(pile_tab_taille >= 0)
+    {
+        position = pile_tab[pile_tab_taille--];
+        for(int i = -1; i < 2; i++)
+            for(int j = -1; j < 2; j++)
+            {
+                int p = position + i * SCAN_X + j;
+                if(image[p] == 1)
+                {
+                    pile_tab[++pile_tab_taille] = p;
+                    image[p] = 2;
+                }
+            }
+    }
+}
+
+int voisin(int position, int pos_prec, int &pos_succ)
+{
+    if(position != pos_prec && image[position])
+    {
+        pos_succ = position;
+        return 1;
+    }
+    else
+        return 0;
+}
+
+//Reglage robot nxt
+int TipLen(int position)
+{
+    int pos_prec =- 1;
+    int pos_succ;
+    int n;
+    int longueur = 0;
+    do
+    {
+        if(++longueur > 5) break;
+        else {
+            n = voisin(position - SCAN_X, pos_prec, pos_succ);
+            n += voisin(position - SCAN_X + 1, pos_prec, pos_succ);
+            n += voisin(position + 1, pos_prec, pos_succ);
+            n += voisin(position + SCAN_X + 1, pos_prec, pos_succ);
+            n += voisin(position + SCAN_X, pos_prec, pos_succ);
+            n += voisin(position + SCAN_X - 1, pos_prec, pos_succ);
+            n += voisin(position - 1, pos_prec, pos_succ);
+            n += voisin(position - SCAN_X - 1, pos_prec, pos_succ);
+            pos_prec = position;
+            position = pos_succ;
+            }
+    }
+    while(n == 1)
+        return longueur;
+}
+
+
+int Tip(int position ,bool &longTip)
+{
+    byte p1 = image[position - SCAN_X],  p2 = image[position - SCAN_X + 1], p3 = image[position + 1], p4 = image[position + SCAN_X + 1];
+    byte p5 = image[position + SCAN_X], p6 = image[position + SCAN_X - 1], p7 = image[position - 1], p8 = image[position - SCAN_X - 1];
+    byte n = p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8;
+    if(n == 1)
+    {
+        int tipLen = TipLen(position);
+        longTip = tipLen > 5;
+        if(tipLen == 1) return 0;
+        //Attribution des point cardinaux aux variables
+        else if(p1)	return(NORD);
+        else if(p2)	return(NORD_OUEST);
+        else if(p3)	return(OUEST);
+        else if(p4)	return(SUD_OUEST);
+        else if(p5)	return(SUD);
+        else if(p6)	return(SUD_EST);
+        else if(p7)	return(EST);
+        else if(p8)	return(NORD_EST);
+    }
+    else return 0;
+}
+
+// reconaissance des chiffres en fonction des pixels
+void reconnaissance(int r, int c)
+{
+    int pixel_haut;
+    int pixel_bas = 0;
+    int pixel_gauche = SCAN_X;
+    int pixel_droite = 0;
+    for(int i = 0; i < SCAN_X * SCAN_Y; i++)
+        if(image[i])
+        {
+            if(!pixel_bas)
+                pixel_bas = i;
+            pixel_haut = i;
+            int colonne = i % SCAN_X;
+            if(colonne < pixel_gauche)
+                pixel_gauche = colonne;
+            if(colonne > pixel_droite)
+                pixel_droite = colonne;
+        }
+    int ligne_haut = pixel_haut / SCAN_X;
+    int ligne_bas = pixel_bas / SCAN_X;
+    int largeur = pixel_droite - pixel_gauche + 1;
+    int longTip_plusHaut = 0;
+    int longTip_plusBas = 0;
+    int tips_gauche = 0;
+    int tip_haut = 0;
+    int tip_bas = 0;
+    for(int i = 0; i < SCAN_X * SCAN_Y; i++)
+        if(image[i])
+        {
+            bool longTip = false;
+            int tip = Tip(i, longTip);
+            if(tip)
+            {
+                if(longTip)
+                {
+                    if(!longTip_plusBas)
+                        longTip_plusBas = tip;
+                    else if(!longTip_plusHaut)
+                        longTip_plusHaut = tip;
+                }
+                if(tip == OUEST || tip == NORD_OUEST || tip == SUD_OUEST)
+                    tips_gauche++;
+                if(i / SCAN_X == ligne_haut)
+                    tip_haut = tip;
+                if(i / SCAN_X == ligne_bas)
+                    tip_bas = tip;
+            }
+        }
+    int chiffre;
+    //reconnaissance des chiffre grace au reglage tips effectué precedement
+    if(largeur < 6)
+
+        chiffre = 1;
+
+    else if(tips_gauche == 3 || 
+            ((longTip_plusHaut == OUEST || 
+            longTip_plusHaut == NORD_OUEST)
+            && (longTip_plusBas == OUEST ||
+           longTip_plusBas == NORD_OUEST) 
+            && tip_bas == 0))
+
+        chiffre = 3;
+
+    else if((longTip_plusHaut == OUEST ||
+             longTip_plusHaut == NORD_OUEST 
+             || longTip_plusHaut == SUD_OUEST)
+            && (longTip_plusBas == OUEST 
+                || longTip_plusBas == SUD_OUEST
+                || longTip_plusBas == SUD))
+
+        chiffre = 7;
+
+    else if(tips_gauche && (longTip_plusBas == EST ||
+            longTip_plusBas == SUD_EST 
+            || longTip_plusBas == NORD_EST)
+            && tip_haut != NORD_EST && tip_haut != EST)
+
+        chiffre = 2;
+
+    else if((longTip_plusHaut == EST || 
+             longTip_plusHaut == NORD_EST ||
+             longTip_plusHaut == SUD_EST) &&
+             (longTip_plusBas == OUEST ||
+            longTip_plusBas == SUD_OUEST || 
+            longTip_plusBas == NORD_OUEST))
+
+        chiffre = 5;
+
+    else if(tip_haut == NORD || 
+            tip_haut == NORD_EST ||
+            tip_haut == EST)
+
+        chiffre = 6;
+
+    else if(tip_bas == SUD || 
+            tip_bas == SUD_OUEST ||
+            tip_bas == OUEST || 
+            longTip_plusBas == OUEST ||
+            longTip_plusBas == SUD_OUEST || 
+            longTip_plusBas == SUD)
+
+        chiffre = 9;
+
+    else if((tip_haut == NORD || 
+             tip_haut == NORD_EST ||
+             tip_haut == NORD_OUEST) &&
+             (tip_bas == SUD || 
+              tip_bas == SUD_OUEST ||
+            tip_bas==SUD_EST))
+
+        chiffre = 4;
+
+    else
+
+        chiffre = 8;
+
+    sudoku[r * 9 + c] = 1 << (chiffre - 1);
+}
+
+// Ici on scan le sudoku grac a toute les fonction precedentes que l'on appelera ici
+void sudoku_scan()
+{
+    recherche_cellules_non_vides();
+    for(int r = 0; r < 9; r++) // sudoku 9*9
+        for(int c = 0; c < 9; c++)
+            if(sonde[r * 9 + c])
+            {
+                cellule_scan(r, c);
+                methode_seuil();
+                segmentation();
+                reconnaissance(r, c);
+            }
+    SetSensorType(IN_2,SENSOR_TYPE_NONE);
+}
+
+/* // Prototype de resolution du sudoku en recursif
+int is_exist_row(int grid[N][N], int row, int num){
+    for (int col = 0; col < 9; col++) {
+        if (grid[row][col] == num) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int is_exist_col(int grid[N][N], int col, int num) {
+    for (int row = 0; row < 9; row++) {
+        if (grid[row][col] == num) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int is_exist_box(int grid[N][N], int startRow, int startCol, int num) {
+    for (int row = 0; row < 3; row++) {
+        for (int col = 0; col < 3; col++) {
+            if (grid[row + startRow][col + startCol] == num) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+int is_safe_num(int grid[N][N], int row, int col, int num) {
+    return !is_exist_row(grid, row, num)
+    && !is_exist_col(grid, col, num)
+    && !is_exist_box(grid, row - (row % 3), col - (col %3), num);
+}
+
+int find_unassigned(int grid[N][N], int *row, int *col) {
+    for (*row = 0; *row < N; (*row)++) {
+        for (*col = 0; *col < N; (*col)++) {
+            if (grid[*row][*col] == 0) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+int solve(int grid[N][N]) {
+
+    int row = 0;
+    int col = 0;
+
+    if (!find_unassigned(grid, &row, &col)){
+        return 1;
+    }
+
+    for (int num = 1; num <= N; num++ ) {
+
+        if (is_safe_num(grid, row, col, num)) {
+            grid[row][col] = num;
+
+            if (solve(grid)) {
+                return 1;
+            }
+
+            grid[row][col] = UNASSIGNED;
+        }
+    }
+
+    return 0;
+}
+*/
+
+// nouvelle resolution du sudokupar suppression/ reduction des domaines
+void initialisation_resoudre()
+{
+    for(int i = 0; i < 81; i++)
+        if(sudoku[i] != 0)
+        {
+            int r = i / 9;
+            int c = i % 9;
+            int b = r / 3 * 3 + c / 3;
+            supressionligne[r] |= sudoku[i];
+            supressioncolonne[c] |= sudoku[i];
+            supression3x3[b] |= sudoku[i];
+        }
+    for(int i = 0; i < 81; i++) // parcours de toute les case du sudoku
+    {
+        int r = i / 9;
+        int c = i % 9;
+        int b = r / 3 * 3 + c / 3;
+        if(sudoku[i] != 0)
+            supressioncellule[i] = 522;
+        else
+            supressioncellule[i] = supressionligne[r] | supressioncolonne[c] | supression3x3[b];
+    }
+    for(int r = 0; r < 9; r+=3)
+        for(int c = 0; c < 9; c+=3)
+        {
+            int i=r*9+c;
+            int r0 = supressioncellule[i] & supressioncellule[i + 1] & supressioncellule[i + 2];
+            int r1 = supressioncellule[i + 9] & supressioncellule[i + 10] & supressioncellule[i + 11];
+            int r2 = supressioncellule[i + 18] & supressioncellule[i + 19] & supressioncellule[i + 20];
+            int c0 = supressioncellule[i] & supressioncellule[i + 9] & supressioncellule[i + 18];
+            int c1 = supressioncellule[i+1] & supressioncellule[i + 10] & supressioncellule[i + 19];
+            int c2 = supressioncellule[i + 2] & supressioncellule[i + 11] & supressioncellule[i + 20];
+            if((r0 ^ 522) & r1 & r2) //r0^522 because ~r0 isn't supported in standard firmware
+                supression_ligne(r, c, (r0^522) & r1 & r2);
+            if(r0 & (r1^522) & r2)
+                supression_ligne(r + 1, c, r0 & (r1 ^ 522) & r2);
+            if(r0 & r1 & (r2 ^ 522))
+                supression_ligne(r + 2, c, r0 & r1 & (r2 ^ 522));
+            if((c0 ^ 522) & c1 & c2)
+               supression_colonne(r, c, (c0 ^ 522) & c1 & c2);
+            if(c0 & (c1 ^ 522) & c2)
+               supression_colonne(r, c + 1, c0 & (c1 ^ 522) & c2);
+            if(c0 & c1 & (c2 ^ 522))
+               supression_colonne(r, c + 2, c0 & c1 & (c2 ^ 522));
+        }
+    for(int i = 0; i < 522; i++)
+    {
+        compteur[i] = 0;
+        for(int j = 1; j <= 261; j *= 2)
+            if (i & j)
+                compteur[i]++;
+    }
+}
+
+int get_cellule()
+{
+    int chiffres_max = 0;
+    int best_cellule = -1;
+    int i = 0;
+    for(int r = 0; r < 9; r++)
+        for(int c = 0; c < 9; c++)
+        {
+            if(!sudoku[i])
+            {
+                int b = r / 3 * 3 + c / 3;
+                int supression_chiffre = supressionligne[r] | supressioncolonne[c] | supression3x3[b] | supressioncellule[i];
+                if(compteur[supression_chiffre] > chiffres_max)
+                {
+                    chiffres_max = compteur[supression_chiffre];
+                    best_cellule = i;
+                    if(chiffres_max == 8)
+                        return best_cellule;
+                }
+            }
+            i++;
+        }
+    return best_cellule;
+}
+
+void niveau_suivant(int niveau)
+{
+    int r = cellule[niveau] / 9;
+    int c = cellule[niveau] % 9;
+    int b = r / 3 * 3 + c / 3;
+    ligne[niveau] = supressionligne[r];
+    colonne[niveau] = supressioncolonne[c];
+    box[niveau] = supression3x3[b];
+    supressionligne[r] |= chiffre[niveau];
+    supressioncolonne[c] |= chiffre[niveau];
+    supression3x3[b] |= chiffre[niveau];
+}
+
+void niveau_precedent(int niveau)
+{
+    int r = cellule[niveau] / 9;
+    int c = cellule[niveau] % 9;
+    int b = r / 3 * 3 + c / 3;
+    supressionligne[r]=ligne[niveau];
+    supressioncolonne[c]=colonne[niveau];
+    supression3x3[b]=box[niveau];
+}
+
+// on resout le sudoku avec l'appelation des fonction precedente
+void sudoku_resoudre()
+{
+    int niveau = 0;
+    initialisation_resoudre();
+    cellule[0] = get_cellule();
+    chiffre[niveau] = 512;
+    while(true)
+    {
+        chiffre[niveau] /= 2;
+        if(!chiffre[niveau])
+        {
+            sudoku[cellule[niveau]] = 0;
+            niveau_precedent(--niveau);
+        }
+        else
+        {
+            int r = cellule[niveau] / 9;
+            int c = cellule[niveau] % 9;
+            int b = r / 3 * 3 + c / 3;
+            if(!((supressionligne[r] | supressioncolonne[c] | supression3x3[b]| supressioncellule[cellule[niveau]]) & chiffre[niveau]))
+            {
+                sudoku[cellule[niveau]] = chiffre[niveau];
+                niveau_suivant(niveau++);
+                cellule[niveau] = get_cellule();
+                if (cellule[niveau] < 0)
+                    break;
+                chiffre[niveau] = 512;
+            }
+        }
+    }
+}
+// permet de baisser le stylo
+void stylo_bas()
+{
+    RotateMotor(OUT_C,19,15);
+}
+// permet de lever le stylo
+void stylo_haut()
+{
+    RotateMotor(OUT_C,19,-15);
+}
+
+// fonction pour déplacer le bras mecanique tenant le stylo
+void stylo_move(int r, int c, int decalageX, int decalageY)
+{
+    int newMotorA;
+    int newMotorB;
+
+    int oldMotorA = MotorRotationCount(OUT_A);
+    int oldMotorB = MotorRotationCount(OUT_B);
+    ResetTachoCount(OUT_AB); // fonction du robot 
+    int y = (r - 4) * TAILLE_CELLULE;
+    newMotorB = cellule_ecriture_X[c] + decalageX;
+    newMotorA = stylocelluleY[c] + y - decalageY - 600;
+    int DiffMotorB = newMotorB - oldMotorB;
+    int DiffMotorA = newMotorA - oldMotorA;
+    RotateMotorEx(OUT_B, 49, DiffMotorB, 0, false, true);
+    if(DiffMotorA < 0)
+    {
+        RotateMotorExPID(OUT_A, 49, DiffMotorA - 199, 0, false, true, 49, 40, 90);
+        RotateMotorExPID(OUT_A, 49, +199, 0, false, true, 49, 40, 90);
+    }
+    else
+        RotateMotorExPID(OUT_A, 49, DiffMotorA, 0, false, true, 49, 40, 90);
+}
+
+// déplacement du bras pour ecrire les chiffre, chaque lettre correspondant a un mouvement 
+void ecrire_chiffre(int chiffre, int ligne, int colonne)
+{
+    int xStep = 5;
+    int yStep = 15;
+    int startX, startY;
+    string sequence;
+    switch(chiffre)
+    {
+    case UN:
+        sequence = "D";
+        startX = 0;
+        startY = 6;
+        break;
+    case DEUX:
+        sequence = "RDLDR";
+        startX = -4;
+        startY = 6;
+        break;
+    case TROIS:
+        sequence = "RDLRDL";
+        startX = -4;
+        startY = 6;
+        break;
+    case QUATRE:
+        sequence = "DURLUD";
+        startX = -4;
+        startY = 6;
+        break;
+    case CINQ:
+        sequence = "LRUDLDLLUL";
+        startX = 4;
+        startY = 6;
+        break;
+    case SIX:
+        sequence = "LDLUL";
+        startX = 4;
+        startY = 6;
+        break;
+    case SEPT:
+        sequence = "RLDLDLDLDLDLDLDLDLD";
+        startX = -4;
+        startY = 6;
+        break;
+    case HUIT:
+        sequence = "RDLRDDLU";
+        startX = -3;
+        startY = 6;
+        break;
+    case NEUF:
+        sequence = "LURDL";
+        startX = 4;
+        startY = 0;
+        break;
+    }
+    stylo_move(ligne, colonne, startX * xStep, startY * yStep);
+    stylo_bas();
+    for(int i = 0; i < StrLen(sequence); i++)
+    {
+        char direction = StrIndex(sequence, i);
+        if(direction == 'L')
+            RotateMotorEx(OUT_B, VITESSE_ECRITURE_X, -1 * xStep, 0, false, false);
+        else if(direction == 'R')
+            RotateMotorEx(OUT_B, VITESSE_ECRITURE_X, xStep, 0, false, false);
+        else if(direction == 'U')
+            RotateMotorEx(OUT_A, VITESSE_ECRITURE_Y, -1 * yStep, 0, false, false);
+        else if(direction == 'D')
+            RotateMotorEx(OUT_A, VITESSE_ECRITURE_Y, yStep, 0, false, false);
+    }
+    Off(OUT_AB);
+    stylo_haut();
+}
+
+// afficher la resolution du sudoku, robot va ecrire sur la feuille la resolution
+void sudoku_afficher()
+{
+    for(int c = 0; c < 9; c++)
+        for(int r = 0; r < 9; r++)
+            if(!sonde[r * 9 + c])
+                ecrire_chiffre(sudoku[r * 9 + c], r, c);
+}
+
+// fonction main, où on appel les fonctions principale de notre programme
+task main()
+{
+    initialisation();
+    sudoku_scan();
+    sudoku_resoudre();
+    sudoku_afficher();
+}
